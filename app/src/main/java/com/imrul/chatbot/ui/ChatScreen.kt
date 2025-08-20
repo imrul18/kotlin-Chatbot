@@ -1,5 +1,6 @@
 package com.imrul.chatbot.ui
 
+import android.util.Log
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -19,6 +20,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.imrul.chatbot.data.models.CalendarEvent
 import com.imrul.chatbot.data.models.ChatMessage
 import com.imrul.chatbot.data.models.MessageType
 import com.imrul.chatbot.ui.theme.BotMessageColor
@@ -31,6 +33,9 @@ fun ChatScreen(
     modifier: Modifier = Modifier
 ) {
     val messages by viewModel.messages.collectAsState()
+
+    Log.d("", "ChatScreen Messages: $messages")
+
     val isLoading by viewModel.isLoading.collectAsState()
     val currentBotMessage by viewModel.currentBotMessage.collectAsState()
     var inputText by remember { mutableStateOf("") }
@@ -102,7 +107,6 @@ fun ChatScreen(
                 placeholder = { Text("Type a message") },
                 maxLines = 3
             )
-
             Button(
                 onClick = {
                     if (inputText.isNotBlank() && !isLoading) {
@@ -126,6 +130,7 @@ fun ChatScreen(
 @Composable
 fun ChatMessageItem(message: ChatMessage) {
     val isUserMessage = message.type == MessageType.USER
+    val context = androidx.compose.ui.platform.LocalContext.current
 
     Box(
         modifier = Modifier.fillMaxWidth(),
@@ -136,12 +141,132 @@ fun ChatMessageItem(message: ChatMessage) {
             color = if (isUserMessage) UserMessageColor else BotMessageColor,
             modifier = Modifier.widthIn(max = 300.dp)
         ) {
-            Text(
-                text = message.content,
-                modifier = Modifier.padding(12.dp),
-                style = MaterialTheme.typography.bodyMedium
-            )
+            if (message.isEventMessage && message.eventData != null) {
+                // Display event message with calendar button
+                Column(
+                    modifier = Modifier.padding(12.dp)
+                ) {
+                    // Display the event details
+                    message.eventData.events.forEachIndexed { index, event ->
+                        Card(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 4.dp),
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Column(
+                                modifier = Modifier.padding(12.dp)
+                            ) {
+                                Text(
+                                    text = event.title,
+                                    style = MaterialTheme.typography.titleMedium,
+                                    modifier = Modifier.padding(bottom = 4.dp)
+                                )
+                                Text(
+                                    text = "Start: ${event.startTime}",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    modifier = Modifier.padding(bottom = 2.dp)
+                                )
+                                Text(
+                                    text = "End: ${event.endTime}",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    modifier = Modifier.padding(bottom = 2.dp)
+                                )
+                                event.location?.let {
+                                    Text(
+                                        text = "Location: $it",
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        modifier = Modifier.padding(bottom = 2.dp)
+                                    )
+                                }
+                                event.notes?.let {
+                                    Text(
+                                        text = "Notes: $it",
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        modifier = Modifier.padding(bottom = 2.dp)
+                                    )
+                                }
+
+                                // Add to Calendar button
+                                Button(
+                                    onClick = {
+                                        addToCalendar(context, event)
+                                    },
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(top = 8.dp)
+                                ) {
+                                    Text("Add to Calendar")
+                                }
+                            }
+                        }
+                    }
+                }
+            } else {
+                // Display regular message
+                Text(
+                    text = message.content,
+                    modifier = Modifier.padding(12.dp),
+                    style = MaterialTheme.typography.bodyMedium
+                )
+            }
         }
+    }
+}
+
+/**
+ * Adds an event to the device calendar.
+ */
+private fun addToCalendar(context: android.content.Context, event: CalendarEvent) {
+    // Check for calendar permissions
+    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) {
+        val hasWriteCalendarPermission = context.checkSelfPermission(android.Manifest.permission.WRITE_CALENDAR) == android.content.pm.PackageManager.PERMISSION_GRANTED
+
+        if (!hasWriteCalendarPermission) {
+            // Request permission through the activity
+            if (context is android.app.Activity) {
+                android.widget.Toast.makeText(context, "Calendar permission is required to add events", android.widget.Toast.LENGTH_LONG).show()
+                context.requestPermissions(
+                    arrayOf(android.Manifest.permission.READ_CALENDAR, android.Manifest.permission.WRITE_CALENDAR),
+                    com.imrul.chatbot.MainActivity.CALENDAR_PERMISSION_REQUEST_CODE
+                )
+                return
+            } else {
+                android.widget.Toast.makeText(context, "Calendar permission is required to add events", android.widget.Toast.LENGTH_LONG).show()
+                return
+            }
+        }
+    }
+
+    // Create intent to add event to calendar
+    val intent = android.content.Intent(android.content.Intent.ACTION_INSERT)
+        .setData(android.provider.CalendarContract.Events.CONTENT_URI)
+        .putExtra(android.provider.CalendarContract.Events.TITLE, event.title)
+        .putExtra(android.provider.CalendarContract.Events.DESCRIPTION, event.notes ?: "")
+        .putExtra(android.provider.CalendarContract.Events.EVENT_LOCATION, event.location ?: "")
+
+    // Parse start and end times
+    try {
+        val startDateTime = java.time.LocalDateTime.parse(
+            event.startTime.replace(" ", "T")
+        )
+        val endDateTime = java.time.LocalDateTime.parse(
+            event.endTime.replace(" ", "T")
+        )
+
+        val startMillis = startDateTime.atZone(java.time.ZoneId.systemDefault()).toInstant().toEpochMilli()
+        val endMillis = endDateTime.atZone(java.time.ZoneId.systemDefault()).toInstant().toEpochMilli()
+
+        intent.putExtra(android.provider.CalendarContract.EXTRA_EVENT_BEGIN_TIME, startMillis)
+        intent.putExtra(android.provider.CalendarContract.EXTRA_EVENT_END_TIME, endMillis)
+    } catch (e: Exception) {
+        // If parsing fails, just open the calendar with the basic info
+    }
+
+    try {
+        context.startActivity(intent)
+    } catch (e: Exception) {
+        android.widget.Toast.makeText(context, "Could not open calendar: ${e.message}", android.widget.Toast.LENGTH_LONG).show()
     }
 }
 

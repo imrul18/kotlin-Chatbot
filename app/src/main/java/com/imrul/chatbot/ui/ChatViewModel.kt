@@ -62,10 +62,24 @@ class ChatViewModel : ViewModel() {
                         _currentBotMessage.value = _fullBotResponse.value
                     }
 
+                    // Check if the response contains event data in JSON format
+                    val isEventMessage = isEventJson(_fullBotResponse.value)
+                    var eventData: EventExtractionResponse? = null
+
+                    if (isEventMessage) {
+                        try {
+                            eventData = parseEventJson(_fullBotResponse.value)
+                        } catch (e: Exception) {
+                            // If parsing fails, treat as a regular message
+                        }
+                    }
+
                     // Add complete bot message to the list
                     val botMessage = ChatMessage(
                         content = _fullBotResponse.value,
-                        type = MessageType.BOT
+                        type = MessageType.BOT,
+                        isEventMessage = isEventMessage,
+                        eventData = eventData
                     )
                     _messages.update { it + botMessage }
 
@@ -115,7 +129,9 @@ class ChatViewModel : ViewModel() {
             // Add the formatted response as a bot message
             val botMessage = ChatMessage(
                 content = formattedResponse,
-                type = MessageType.BOT
+                type = MessageType.BOT,
+                isEventMessage = true,
+                eventData = response
             )
             _messages.update { it + botMessage }
         }
@@ -145,5 +161,99 @@ class ChatViewModel : ViewModel() {
         }
 
         return sb.toString()
+    }
+
+    /**
+     * Checks if the given text is a representation of an event.
+     * Supports both JSON format and text-based format.
+     */
+    private fun isEventJson(text: String): Boolean {
+        // Check for JSON format
+        try {
+            val trimmedText = text.trim()
+            if (trimmedText.startsWith("{") && trimmedText.endsWith("}")) {
+                val jsonObject = com.google.gson.JsonParser().parse(trimmedText).asJsonObject
+                if (jsonObject.has("eventCount") && jsonObject.has("events")) {
+                    return true
+                }
+            }
+        } catch (e: Exception) {
+            // Not a valid JSON, continue to check text format
+        }
+
+        // Check for text-based format (event-N followed by event details)
+        val eventPattern = """event-\d+\s+title:""".toRegex()
+        return eventPattern.containsMatchIn(text)
+    }
+
+    /**
+     * Parses the given text into an EventExtractionResponse object.
+     * Supports both JSON format and text-based format.
+     */
+    private fun parseEventJson(text: String): EventExtractionResponse {
+        // Try parsing as JSON first
+        try {
+            val trimmedText = text.trim()
+            if (trimmedText.startsWith("{") && trimmedText.endsWith("}")) {
+                val gson = com.google.gson.Gson()
+                return gson.fromJson(trimmedText, EventExtractionResponse::class.java)
+            }
+        } catch (e: Exception) {
+            // Not a valid JSON, try text format
+        }
+
+        // Parse text-based format
+        return parseTextBasedEventFormat(text)
+    }
+
+    /**
+     * Parses the text-based event format into an EventExtractionResponse object.
+     * Format example:
+     * event-1
+     * title: Event Title
+     * start: YYYY-MM-DD HH:MM:SS
+     * end: YYYY-MM-DD HH:MM:SS
+     * location: Location
+     * notes: Notes
+     */
+    private fun parseTextBasedEventFormat(text: String): EventExtractionResponse {
+        val events = mutableListOf<com.imrul.chatbot.data.models.CalendarEvent>()
+
+        // Split by event-N to get individual events
+        val eventBlocks = text.split("""(?=event-\d+)""".toRegex()).filter { it.isNotBlank() }
+
+        for (block in eventBlocks) {
+            val lines = block.trim().split("\n")
+
+            var title = ""
+            var startTime = ""
+            var endTime = ""
+            var location: String? = null
+            var notes: String? = null
+
+            for (line in lines) {
+                val trimmedLine = line.trim()
+                when {
+                    trimmedLine.startsWith("title:") -> title = trimmedLine.substringAfter("title:").trim()
+                    trimmedLine.startsWith("start:") -> startTime = trimmedLine.substringAfter("start:").trim()
+                    trimmedLine.startsWith("end:") -> endTime = trimmedLine.substringAfter("end:").trim()
+                    trimmedLine.startsWith("location:") -> location = trimmedLine.substringAfter("location:").trim()
+                    trimmedLine.startsWith("notes:") -> notes = trimmedLine.substringAfter("notes:").trim()
+                }
+            }
+
+            // Only add if we have the required fields
+            if (title.isNotBlank() && startTime.isNotBlank() && endTime.isNotBlank()) {
+                events.add(com.imrul.chatbot.data.models.CalendarEvent(
+                    title = title,
+                    startTime = startTime,
+                    endTime = endTime,
+                    location = location,
+                    notes = notes
+                ))
+            }
+        }
+
+        return com.imrul.chatbot.data.models.EventExtractionResponse(events, events.size)
     }
 }

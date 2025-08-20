@@ -54,7 +54,7 @@ class EventParser {
             .build()
 
         val response = client.newCall(httpRequest).execute()
-        
+
         if (response.isSuccessful) {
             val inputStream = response.body?.byteStream()
             if (inputStream != null) {
@@ -67,7 +67,7 @@ class EventParser {
                         try {
                             val llamaResponse = gson.fromJson(line, com.imrul.chatbot.data.models.LlamaResponse::class.java)
                             responseBuilder.append(llamaResponse.response)
-                            
+
                             if (llamaResponse.done) {
                                 break
                             }
@@ -76,9 +76,9 @@ class EventParser {
                         }
                     }
                 }
-                
+
                 reader.close()
-                
+
                 // Parse the complete response to extract events
                 val extractedEvents = parseEventsFromResponse(responseBuilder.toString())
                 emit(extractedEvents)
@@ -89,7 +89,7 @@ class EventParser {
             throw Exception("API call failed with code ${response.code}")
         }
     }.flowOn(Dispatchers.IO)
-    
+
     /**
      * Builds the prompt for the Llama model to extract events.
      * Includes reference date and timezone information.
@@ -97,12 +97,12 @@ class EventParser {
     private fun buildPrompt(text: String): String {
         return """
             You are an event parser. Convert the following into a normalized event block.
-            
+
             REFERENCE_DATE: 2025-07-28
             TIMEZONE: Europe/Berlin
-            
+
             Extract exactly one event from the text and format it as a JSON object.
-            
+
             Format the response as follows:
             {
               "eventCount": 1,
@@ -116,15 +116,15 @@ class EventParser {
                 }
               ]
             }
-            
+
             If no event is found, return {"eventCount": 0, "events": []}.
             Only include fields that are specified in the text.
             Do not include any explanations, just the JSON object.
-            
+
             Text: $text
         """.trimIndent()
     }
-    
+
     /**
      * Parses the response from the Llama model to extract events.
      */
@@ -136,7 +136,7 @@ class EventParser {
             // If that fails, try to extract just the JSON part
             val jsonPattern = """\{[\s\S]*\}""".toRegex()
             val jsonMatch = jsonPattern.find(response)
-            
+
             if (jsonMatch != null) {
                 try {
                     return gson.fromJson(jsonMatch.value, EventExtractionResponse::class.java)
@@ -145,32 +145,21 @@ class EventParser {
                     return EventExtractionResponse(emptyList(), 0)
                 }
             }
-            
+
             // If no JSON found, return empty response
             return EventExtractionResponse(emptyList(), 0)
         }
     }
-    
+
     /**
-     * Formats the event extraction response into a normalized event block.
+     * Formats the event extraction response into a JSON string.
      */
     private fun formatEventBlock(response: EventExtractionResponse): String {
         if (response.eventCount == 0) {
             return "No events found"
         }
 
-        val sb = StringBuilder()
-        
-        // We only expect one event
-        val event = response.events.firstOrNull() ?: return "No events found"
-        
-        sb.append("event-1\n")
-        sb.append(" title: ${event.title}\n")
-        sb.append(" start: ${event.startTime}\n")
-        sb.append(" end: ${event.endTime}\n")
-        event.location?.let { sb.append(" location: $it\n") }
-        event.notes?.let { sb.append(" notes: $it\n") }
-        
-        return sb.toString()
+        // Return the JSON representation of the response
+        return gson.toJson(response)
     }
 }
