@@ -11,5 +11,7 @@ data class ChatMessage(
     val id: String = UUID.randomUUID().toString(),
     val content: String,
     val type: MessageType,
-    val timestamp: Long = System.currentTimeMillis()
+    val timestamp: Long = System.currentTimeMillis(),
+    val eventData: EventExtractionResponse? = null,
+    val isEventMessage: Boolean = false
 )

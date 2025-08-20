@@ -24,6 +24,11 @@ import com.imrul.chatbot.ui.theme.ChatBotTheme
 
 class MainActivity : ComponentActivity() {
 
+    companion object {
+        // Request code for calendar permissions
+        const val CALENDAR_PERMISSION_REQUEST_CODE = 100
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent {
@@ -35,6 +40,26 @@ class MainActivity : ComponentActivity() {
                 ) {
                     MainScreen()
                 }
+            }
+        }
+    }
+
+    /**
+     * Handle permission request results
+     */
+    override fun onRequestPermissionsResult(
+        requestCode: Int,
+        permissions: Array<out String>,
+        grantResults: IntArray
+    ) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+
+        if (requestCode == CALENDAR_PERMISSION_REQUEST_CODE) {
+            // Check if permission was granted
+            if (grantResults.isNotEmpty() && grantResults[0] == android.content.pm.PackageManager.PERMISSION_GRANTED) {
+                Toast.makeText(this, "Calendar permission granted", Toast.LENGTH_SHORT).show()
+            } else {
+                Toast.makeText(this, "Calendar permission denied. Cannot add events to calendar.", Toast.LENGTH_LONG).show()
             }
         }
     }
